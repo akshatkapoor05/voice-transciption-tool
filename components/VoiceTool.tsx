@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import styles from "@/styles/voice.module.css";
+import styles from "../styles/voice.module.css";
 
 declare global {
   interface Window {
@@ -9,13 +9,14 @@ declare global {
 }
 
 export default function VoiceTool() {
-  const recognitionRef = useRef<any>(null);
-
   const [listening, setListening] = useState(false);
+
+  // IMPORTANT: separate states
   const [finalText, setFinalText] = useState("");
   const [interimText, setInterimText] = useState("");
 
-  // Create recognition ONCE
+  const recognitionRef = useRef<any>(null);
+
   useEffect(() => {
     const SpeechRecognition =
       window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -31,44 +32,52 @@ export default function VoiceTool() {
     recognition.lang = "en-US";
 
     recognition.onresult = (event: any) => {
-      let finalChunk = "";
-      let interimChunk = "";
+      let newFinal = "";
+      let newInterim = "";
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
 
         if (event.results[i].isFinal) {
-          finalChunk += transcript + " ";
+          newFinal += transcript + " ";
         } else {
-          interimChunk += transcript;
+          newInterim += transcript;
         }
       }
 
-      if (finalChunk) {
-        setFinalText((prev) => prev + finalChunk);
+      // ✅ Only append FINAL results permanently
+      if (newFinal) {
+        setFinalText((prev) => prev + newFinal);
       }
 
-      setInterimText(interimChunk);
+      // ✅ Interim text is temporary
+      setInterimText(newInterim);
+    };
+
+    recognition.onend = () => {
+      setListening(false);
+      setInterimText("");
+    };
+
+    recognition.onerror = () => {
+      setListening(false);
+      setInterimText("");
     };
 
     recognitionRef.current = recognition;
   }, []);
 
-  const startMic = () => {
-    setFinalText("");
-    setInterimText("");
-    recognitionRef.current.start();
-    setListening(true);
-  };
-
-  const stopMic = () => {
-    recognitionRef.current.stop();
-    setListening(false);
-    setInterimText("");
-  };
-
-  const copyText = () => {
-    navigator.clipboard.writeText(finalText);
+  const toggleMic = () => {
+    if (listening) {
+      recognitionRef.current.stop();
+      setListening(false);
+      setInterimText("");
+    } else {
+      setFinalText("");
+      setInterimText("");
+      recognitionRef.current.start();
+      setListening(true);
+    }
   };
 
   return (
@@ -79,35 +88,32 @@ export default function VoiceTool() {
       </header>
 
       <div className={styles.card}>
-        {!listening ? (
-          <button className={styles.micButton} onClick={startMic}>
-            🎤 Start speaking
-          </button>
-        ) : (
-          <button
-            className={`${styles.micButton} ${styles.listening}`}
-            onClick={stopMic}
-          >
-            ⏹ Stop
-          </button>
-        )}
+        <button
+          className={`${styles.micButton} ${
+            listening ? styles.listening : ""
+          }`}
+          onClick={toggleMic}
+        >
+          {listening ? "⏹ Stop" : "🎤 Start Speaking"}
+        </button>
 
         <div className={styles.status}>
-          {listening ? "Listening…" : "Click start to speak"}
+          {listening ? "Listening…" : "Click mic to start"}
         </div>
       </div>
 
       <div className={styles.editor}>
         <div className={styles.editorHeader}>
-          <span>Transcript</span>
-          <button onClick={copyText}>Copy</button>
+          <h3>Live Transcript</h3>
+          <span className={styles.badge}>Editable</span>
         </div>
 
+        {/* ✅ FINAL + INTERIM combined for display */}
         <textarea
           className={styles.textarea}
           value={finalText + interimText}
           onChange={(e) => setFinalText(e.target.value)}
-          placeholder="Your speech will appear here…"
+          placeholder="Your speech will appear here..."
         />
       </div>
 
