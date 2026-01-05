@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import styles from "../styles/voice.module.css";
+import styles from "@/styles/voice.module.css";
 
 declare global {
   interface Window {
@@ -9,14 +9,17 @@ declare global {
 }
 
 export default function VoiceTool() {
-  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
 
-  // IMPORTANT: separate states
+  const [listening, setListening] = useState(false);
   const [finalText, setFinalText] = useState("");
   const [interimText, setInterimText] = useState("");
 
-  const recognitionRef = useRef<any>(null);
+  const isMobile =
+    typeof navigator !== "undefined" &&
+    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
+  // Create SpeechRecognition ONCE
   useEffect(() => {
     const SpeechRecognition =
       window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -27,57 +30,60 @@ export default function VoiceTool() {
     }
 
     const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
     recognition.lang = "en-US";
 
+    // Desktop vs Mobile behavior
+    recognition.continuous = !isMobile;
+    recognition.interimResults = !isMobile;
+
     recognition.onresult = (event: any) => {
-      let newFinal = "";
-      let newInterim = "";
+      let finalChunk = "";
+      let interimChunk = "";
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
 
         if (event.results[i].isFinal) {
-          newFinal += transcript + " ";
-        } else {
-          newInterim += transcript;
+          finalChunk += transcript + " ";
+        } else if (!isMobile) {
+          interimChunk += transcript;
         }
       }
 
-      // ✅ Only append FINAL results permanently
-      if (newFinal) {
-        setFinalText((prev) => prev + newFinal);
+      if (finalChunk) {
+        setFinalText((prev) => prev + finalChunk);
       }
 
-      // ✅ Interim text is temporary
-      setInterimText(newInterim);
+      if (!isMobile) {
+        setInterimText(interimChunk);
+      }
     };
 
+    // IMPORTANT: Mobile restart logic
     recognition.onend = () => {
-      setListening(false);
-      setInterimText("");
-    };
-
-    recognition.onerror = () => {
-      setListening(false);
-      setInterimText("");
+      if (listening && isMobile) {
+        recognition.start();
+      }
     };
 
     recognitionRef.current = recognition;
-  }, []);
+  }, [isMobile, listening]);
 
-  const toggleMic = () => {
-    if (listening) {
-      recognitionRef.current.stop();
-      setListening(false);
-      setInterimText("");
-    } else {
-      setFinalText("");
-      setInterimText("");
-      recognitionRef.current.start();
-      setListening(true);
-    }
+  const startMic = () => {
+    setFinalText("");
+    setInterimText("");
+    recognitionRef.current.start();
+    setListening(true);
+  };
+
+  const stopMic = () => {
+    recognitionRef.current.stop();
+    setListening(false);
+    setInterimText("");
+  };
+
+  const copyText = () => {
+    navigator.clipboard.writeText(finalText);
   };
 
   return (
@@ -88,32 +94,35 @@ export default function VoiceTool() {
       </header>
 
       <div className={styles.card}>
-        <button
-          className={`${styles.micButton} ${
-            listening ? styles.listening : ""
-          }`}
-          onClick={toggleMic}
-        >
-          {listening ? "⏹ Stop" : "🎤 Start Speaking"}
-        </button>
+        {!listening ? (
+          <button className={styles.micButton} onClick={startMic}>
+            🎤 Start speaking
+          </button>
+        ) : (
+          <button
+            className={`${styles.micButton} ${styles.listening}`}
+            onClick={stopMic}
+          >
+            ⏹ Stop
+          </button>
+        )}
 
         <div className={styles.status}>
-          {listening ? "Listening…" : "Click mic to start"}
+          {listening ? "Listening…" : "Click start to speak"}
         </div>
       </div>
 
       <div className={styles.editor}>
         <div className={styles.editorHeader}>
-          <h3>Live Transcript</h3>
-          <span className={styles.badge}>Editable</span>
+          <span>Transcript</span>
+          <button onClick={copyText}>Copy</button>
         </div>
 
-        {/* ✅ FINAL + INTERIM combined for display */}
         <textarea
           className={styles.textarea}
           value={finalText + interimText}
           onChange={(e) => setFinalText(e.target.value)}
-          placeholder="Your speech will appear here..."
+          placeholder="Your speech will appear here…"
         />
       </div>
 
