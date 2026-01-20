@@ -21,72 +21,60 @@ export default function VoiceTool() {
 
   // Create recognition ONCE
   useEffect(() => {
-  const SpeechRecognition =
-    window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
 
-  if (!SpeechRecognition) {
-    alert("Speech recognition not supported");
-    return;
-  }
-
-  const recognition = new SpeechRecognition();
-  recognition.lang = "en-US";
-
-  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-
-  recognition.continuous = !isMobile;
-  recognition.interimResults = !isMobile;
-
-  recognition.onresult = (event: any) => {
-    let finalChunk = "";
-    let interimChunk = "";
-
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      const transcript = event.results[i][0].transcript;
-
-      if (event.results[i].isFinal) {
-        finalChunk += transcript + " ";
-      } else if (!isMobile) {
-        interimChunk += transcript;
-      }
+    if (!SpeechRecognition) {
+      alert("Speech recognition not supported in this browser.");
+      return;
     }
 
-    if (finalChunk) {
-      setFinalText((prev) => prev + finalChunk);
-    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
 
-    if (!isMobile) {
-      setInterimText(interimChunk);
-    }
-  };
+    // Desktop supports continuous; mobile does not
+    recognition.continuous = !isMobile;
+    recognition.interimResults = !isMobile;
 
-  recognition.onend = () => {
-    // 🔥 MOBILE SAFE AUTO-RESTART
-    if (listening) {
-      setTimeout(() => {
-        try {
-          recognition.start();
-        } catch {
-          // Mobile browsers may block restart — ignore silently
+    recognition.onresult = (event: any) => {
+      let finalChunk = "";
+      let interimChunk = "";
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+
+        if (event.results[i].isFinal) {
+          finalChunk += transcript + " ";
+        } else if (!isMobile) {
+          interimChunk += transcript;
         }
-      }, 500); // delay is CRITICAL
-    }
-  };
+      }
 
-  recognition.onerror = () => {
-    // Retry after small delay
-    if (listening) {
-      setTimeout(() => {
-        try {
-          recognition.start();
-        } catch {}
-      }, 800);
-    }
-  };
+      if (finalChunk) {
+        setFinalText((prev) => prev + finalChunk);
+      }
 
-  recognitionRef.current = recognition;
-}, [listening]);
+      if (!isMobile) {
+        setInterimText(interimChunk);
+      }
+    };
 
+    // IMPORTANT: mobile cannot auto-resume
+    recognition.onend = () => {
+      if (!listening) return;
+
+      if (isMobile) {
+        // Stop and ask user to tap again
+        setListening(false);
+        setInterimText("");
+      } else {
+        // Desktop can safely auto-restart
+        recognition.start();
+      }
+    };
+
+    recognitionRef.current = recognition;
+  }, [isMobile, listening]);
 
   const startMic = () => {
     recognitionRef.current.start();
@@ -112,13 +100,17 @@ export default function VoiceTool() {
     <div className={styles.container}>
       <header className={styles.header}>
         <h1>🎙️ Voice Notes</h1>
-        <p>Speak freely. Pauses won’t stop recording.</p>
+        <p>
+          {isMobile
+            ? "Tap to speak. Pauses may require a tap to continue."
+            : "Speak freely. Pauses won’t stop recording."}
+        </p>
       </header>
 
       <div className={styles.card}>
         {!listening ? (
           <button className={styles.micButton} onClick={startMic}>
-            🎤 Start speaking
+            🎤 {isMobile ? "Tap to speak" : "Start speaking"}
           </button>
         ) : (
           <button
@@ -130,7 +122,11 @@ export default function VoiceTool() {
         )}
 
         <div className={styles.status}>
-          {listening ? "Listening…" : "Not listening"}
+          {listening
+            ? "Listening…"
+            : isMobile
+            ? "Paused — tap to continue"
+            : "Not listening"}
         </div>
       </div>
 
@@ -154,7 +150,7 @@ export default function VoiceTool() {
       </div>
 
       <footer className={styles.footer}>
-        Internal tool • Continuous speech-to-text
+        Internal tool • Mobile-safe speech-to-text
       </footer>
     </div>
   );
