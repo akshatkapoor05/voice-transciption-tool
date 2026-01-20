@@ -8,13 +8,13 @@ declare global {
   }
 }
 
-type MicState = "idle" | "listening" | "paused";
+type Mode = "stopped" | "recording" | "idle";
 
 export default function VoiceTool() {
   const recognitionRef = useRef<any>(null);
-  const watchdogRef = useRef<NodeJS.Timeout | null>(null);
+  const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const [micState, setMicState] = useState<MicState>("idle");
+  const [mode, setMode] = useState<Mode>("stopped");
   const [finalText, setFinalText] = useState("");
   const [interimText, setInterimText] = useState("");
 
@@ -22,21 +22,17 @@ export default function VoiceTool() {
     typeof navigator !== "undefined" &&
     /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-  // 🔁 Reset watchdog timer
-  const resetWatchdog = () => {
-    if (!isMobile) return;
-
-    if (watchdogRef.current) {
-      clearTimeout(watchdogRef.current);
+  // Reset inactivity timer whenever new text appears
+  const resetInactivityTimer = () => {
+    if (inactivityTimerRef.current) {
+      clearTimeout(inactivityTimerRef.current);
     }
 
-    watchdogRef.current = setTimeout(() => {
-      // No results for a while → mic likely stopped
-      if (micState === "listening") {
-        setMicState("paused");
-        setInterimText("");
+    inactivityTimerRef.current = setTimeout(() => {
+      if (mode === "recording") {
+        setMode("idle"); // 🔥 switch Stop → Resume
       }
-    }, 2500); // 2.5s silence threshold
+    }, 2500); // 2.5 seconds
   };
 
   useEffect(() => {
@@ -54,7 +50,8 @@ export default function VoiceTool() {
     recognition.interimResults = !isMobile;
 
     recognition.onresult = (event: any) => {
-      resetWatchdog(); // 🔥 KEY
+      resetInactivityTimer();
+      setMode("recording");
 
       let finalChunk = "";
       let interimChunk = "";
@@ -78,44 +75,37 @@ export default function VoiceTool() {
       }
     };
 
+    // Desktop auto-resume only
     recognition.onend = () => {
-      if (!isMobile && micState === "listening") {
+      if (!isMobile && mode === "recording") {
         recognition.start();
-      }
-    };
-
-    recognition.onerror = () => {
-      if (isMobile && micState === "listening") {
-        setMicState("paused");
       }
     };
 
     recognitionRef.current = recognition;
 
     return () => {
-      if (watchdogRef.current) {
-        clearTimeout(watchdogRef.current);
+      if (inactivityTimerRef.current) {
+        clearTimeout(inactivityTimerRef.current);
       }
     };
-  }, [isMobile, micState]);
+  }, [isMobile, mode]);
 
-  const startMic = () => {
-    if (!recognitionRef.current) return;
+  const startOrResume = () => {
     try {
-      recognitionRef.current.start();
-      setMicState("listening");
-      resetWatchdog();
+      recognitionRef.current?.start();
+      setMode("recording");
+      resetInactivityTimer();
     } catch {}
   };
 
-  const stopMic = () => {
-    if (!recognitionRef.current) return;
-    recognitionRef.current.stop();
-    setMicState("idle");
+  const stopRecording = () => {
+    recognitionRef.current?.stop();
+    setMode("stopped");
     setInterimText("");
 
-    if (watchdogRef.current) {
-      clearTimeout(watchdogRef.current);
+    if (inactivityTimerRef.current) {
+      clearTimeout(inactivityTimerRef.current);
     }
   };
 
@@ -134,30 +124,30 @@ export default function VoiceTool() {
         <h1>🎙️ Voice Notes</h1>
         <p>
           {isMobile
-            ? "Tap to speak. Pauses may pause recording."
+            ? "If paused, tap Resume to continue speaking."
             : "Speak freely. Pauses won’t stop recording."}
         </p>
       </header>
 
       <div className={styles.card}>
-        {micState === "listening" ? (
+        {mode === "recording" ? (
           <button
             className={`${styles.micButton} ${styles.listening}`}
-            onClick={stopMic}
+            onClick={stopRecording}
           >
             ⏹ Stop
           </button>
         ) : (
-          <button className={styles.micButton} onClick={startMic}>
-            🎤 {micState === "paused" ? "Tap to continue" : "Start speaking"}
+          <button className={styles.micButton} onClick={startOrResume}>
+            🎤 {mode === "idle" ? "Resume" : "Start speaking"}
           </button>
         )}
 
         <div className={styles.status}>
-          {micState === "listening"
+          {mode === "recording"
             ? "Listening…"
-            : micState === "paused"
-            ? "Paused — microphone stopped"
+            : mode === "idle"
+            ? "Paused — no new speech detected"
             : "Not listening"}
         </div>
       </div>
@@ -182,7 +172,7 @@ export default function VoiceTool() {
       </div>
 
       <footer className={styles.footer}>
-        Internal tool • Mobile-aware speech-to-text
+        Internal tool • Activity-based mobile dictation
       </footer>
     </div>
   );
