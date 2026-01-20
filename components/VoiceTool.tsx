@@ -12,7 +12,7 @@ type Mode = "stopped" | "recording" | "idle";
 
 export default function VoiceTool() {
   const recognitionRef = useRef<any>(null);
-  const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const modeRef = useRef<Mode>("stopped");
 
   const [mode, setMode] = useState<Mode>("stopped");
   const [finalText, setFinalText] = useState("");
@@ -22,19 +22,12 @@ export default function VoiceTool() {
     typeof navigator !== "undefined" &&
     /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-  // Reset inactivity timer whenever new text appears
-  const resetInactivityTimer = () => {
-    if (inactivityTimerRef.current) {
-      clearTimeout(inactivityTimerRef.current);
-    }
+  // keep ref synced with state (avoids stale closures)
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
 
-    inactivityTimerRef.current = setTimeout(() => {
-      if (mode === "recording") {
-        setMode("idle"); // 🔥 switch Stop → Resume
-      }
-    }, 2500); // 2.5 seconds
-  };
-
+  // initialize SpeechRecognition ONCE
   useEffect(() => {
     const SpeechRecognition =
       window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -46,11 +39,10 @@ export default function VoiceTool() {
 
     const recognition = new SpeechRecognition();
     recognition.lang = "en-US";
-    recognition.continuous = !isMobile;
+    recognition.continuous = !isMobile; // ignored on mobile anyway
     recognition.interimResults = !isMobile;
 
     recognition.onresult = (event: any) => {
-      resetInactivityTimer();
       setMode("recording");
 
       let finalChunk = "";
@@ -75,27 +67,44 @@ export default function VoiceTool() {
       }
     };
 
-    // Desktop auto-resume only
     recognition.onend = () => {
-      if (!isMobile && mode === "recording") {
-        recognition.start();
+      // MOBILE: silence means paused
+      if (isMobile) {
+        if (modeRef.current === "recording") {
+          setMode("idle");
+        }
+        return;
+      }
+
+      // DESKTOP: auto resume if still recording
+      if (modeRef.current === "recording") {
+        try {
+          recognition.start();
+        } catch {}
+      }
+    };
+
+    recognition.onerror = () => {
+      // defensive fallback
+      if (modeRef.current === "recording") {
+        setMode("idle");
       }
     };
 
     recognitionRef.current = recognition;
 
     return () => {
-      if (inactivityTimerRef.current) {
-        clearTimeout(inactivityTimerRef.current);
-      }
+      recognition.onresult = null;
+      recognition.onend = null;
+      recognition.onerror = null;
+      recognition.stop();
     };
-  }, [isMobile, mode]);
+  }, [isMobile]);
 
   const startOrResume = () => {
     try {
       recognitionRef.current?.start();
       setMode("recording");
-      resetInactivityTimer();
     } catch {}
   };
 
@@ -103,10 +112,6 @@ export default function VoiceTool() {
     recognitionRef.current?.stop();
     setMode("stopped");
     setInterimText("");
-
-    if (inactivityTimerRef.current) {
-      clearTimeout(inactivityTimerRef.current);
-    }
   };
 
   const clearText = () => {
@@ -124,7 +129,7 @@ export default function VoiceTool() {
         <h1>🎙️ Voice Notes</h1>
         <p>
           {isMobile
-            ? "If paused, tap Resume to continue speaking."
+            ? "If paused, tap Resume to continue speaking"
             : "Speak freely. Pauses won’t stop recording."}
         </p>
       </header>
@@ -147,7 +152,7 @@ export default function VoiceTool() {
           {mode === "recording"
             ? "Listening…"
             : mode === "idle"
-            ? "Paused — no new speech detected"
+            ? "Paused — no speech detected"
             : "Not listening"}
         </div>
       </div>
@@ -166,7 +171,7 @@ export default function VoiceTool() {
         <textarea
           className={styles.textarea}
           value={finalText + interimText}
-          onChange={(e) => setFinalText(e.target.value)}
+          readOnly={mode === "recording"}
           placeholder="Your speech will appear here…"
         />
       </div>
