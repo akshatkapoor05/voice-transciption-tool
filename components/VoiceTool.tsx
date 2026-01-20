@@ -11,7 +11,9 @@ declare global {
 export default function VoiceTool() {
   const recognitionRef = useRef<any>(null);
 
+  // User intent: should we be listening?
   const [listening, setListening] = useState(false);
+
   const [finalText, setFinalText] = useState("");
   const [interimText, setInterimText] = useState("");
 
@@ -19,7 +21,6 @@ export default function VoiceTool() {
     typeof navigator !== "undefined" &&
     /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-  // Create recognition ONCE
   useEffect(() => {
     const SpeechRecognition =
       window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -32,7 +33,6 @@ export default function VoiceTool() {
     const recognition = new SpeechRecognition();
     recognition.lang = "en-US";
 
-    // Desktop supports continuous; mobile does not
     recognition.continuous = !isMobile;
     recognition.interimResults = !isMobile;
 
@@ -59,17 +59,28 @@ export default function VoiceTool() {
       }
     };
 
-    // IMPORTANT: mobile cannot auto-resume
     recognition.onend = () => {
-      if (!listening) return;
+      // 🔥 KEY FIX
+      // If user still wants listening, restart automatically
+      if (listening) {
+        setTimeout(() => {
+          try {
+            recognition.start();
+          } catch {
+            // mobile may block sometimes — ignore silently
+          }
+        }, 400);
+      }
+    };
 
-      if (isMobile) {
-        // Stop and ask user to tap again
-        setListening(false);
-        setInterimText("");
-      } else {
-        // Desktop can safely auto-restart
-        recognition.start();
+    recognition.onerror = () => {
+      // Retry if user intent is still listening
+      if (listening) {
+        setTimeout(() => {
+          try {
+            recognition.start();
+          } catch {}
+        }, 600);
       }
     };
 
@@ -77,11 +88,13 @@ export default function VoiceTool() {
   }, [isMobile, listening]);
 
   const startMic = () => {
+    if (!recognitionRef.current) return;
     recognitionRef.current.start();
     setListening(true);
   };
 
   const stopMic = () => {
+    if (!recognitionRef.current) return;
     recognitionRef.current.stop();
     setListening(false);
     setInterimText("");
@@ -102,7 +115,7 @@ export default function VoiceTool() {
         <h1>🎙️ Voice Notes</h1>
         <p>
           {isMobile
-            ? "Tap to speak. Pauses may require a tap to continue."
+            ? "Speak freely. Pauses are handled automatically."
             : "Speak freely. Pauses won’t stop recording."}
         </p>
       </header>
@@ -110,7 +123,7 @@ export default function VoiceTool() {
       <div className={styles.card}>
         {!listening ? (
           <button className={styles.micButton} onClick={startMic}>
-            🎤 {isMobile ? "Tap to speak" : "Start speaking"}
+            🎤 Start speaking
           </button>
         ) : (
           <button
@@ -122,11 +135,7 @@ export default function VoiceTool() {
         )}
 
         <div className={styles.status}>
-          {listening
-            ? "Listening…"
-            : isMobile
-            ? "Paused — tap to continue"
-            : "Not listening"}
+          {listening ? "Listening…" : "Not listening"}
         </div>
       </div>
 
@@ -150,7 +159,7 @@ export default function VoiceTool() {
       </div>
 
       <footer className={styles.footer}>
-        Internal tool • Mobile-safe speech-to-text
+        Internal tool • Mobile-friendly speech-to-text
       </footer>
     </div>
   );
