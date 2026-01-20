@@ -8,11 +8,13 @@ declare global {
   }
 }
 
+type MicState = "idle" | "listening" | "paused";
+
 export default function VoiceTool() {
   const recognitionRef = useRef<any>(null);
 
-  // User intent: should we be listening?
-  const [listening, setListening] = useState(false);
+  // Mic UX state (important)
+  const [micState, setMicState] = useState<MicState>("idle");
 
   const [finalText, setFinalText] = useState("");
   const [interimText, setInterimText] = useState("");
@@ -60,43 +62,40 @@ export default function VoiceTool() {
     };
 
     recognition.onend = () => {
-      // 🔥 KEY FIX
-      // If user still wants listening, restart automatically
-      if (listening) {
-        setTimeout(() => {
-          try {
-            recognition.start();
-          } catch {
-            // mobile may block sometimes — ignore silently
-          }
-        }, 400);
+      // Desktop: auto-restart
+      if (!isMobile && micState === "listening") {
+        recognition.start();
+        return;
+      }
+
+      // Mobile: mic revoked by OS → update UX honestly
+      if (isMobile && micState === "listening") {
+        setMicState("paused");
+        setInterimText("");
       }
     };
 
     recognition.onerror = () => {
-      // Retry if user intent is still listening
-      if (listening) {
-        setTimeout(() => {
-          try {
-            recognition.start();
-          } catch {}
-        }, 600);
+      if (isMobile && micState === "listening") {
+        setMicState("paused");
       }
     };
 
     recognitionRef.current = recognition;
-  }, [isMobile, listening]);
+  }, [isMobile, micState]);
 
   const startMic = () => {
     if (!recognitionRef.current) return;
-    recognitionRef.current.start();
-    setListening(true);
+    try {
+      recognitionRef.current.start();
+      setMicState("listening");
+    } catch {}
   };
 
   const stopMic = () => {
     if (!recognitionRef.current) return;
     recognitionRef.current.stop();
-    setListening(false);
+    setMicState("idle");
     setInterimText("");
   };
 
@@ -115,27 +114,31 @@ export default function VoiceTool() {
         <h1>🎙️ Voice Notes</h1>
         <p>
           {isMobile
-            ? "Speak freely. Pauses are handled automatically."
+            ? "Tap to speak. If paused, tap again to continue."
             : "Speak freely. Pauses won’t stop recording."}
         </p>
       </header>
 
       <div className={styles.card}>
-        {!listening ? (
-          <button className={styles.micButton} onClick={startMic}>
-            🎤 Start speaking
-          </button>
-        ) : (
+        {micState === "listening" ? (
           <button
             className={`${styles.micButton} ${styles.listening}`}
             onClick={stopMic}
           >
             ⏹ Stop
           </button>
+        ) : (
+          <button className={styles.micButton} onClick={startMic}>
+            🎤 {micState === "paused" ? "Tap to continue" : "Start speaking"}
+          </button>
         )}
 
         <div className={styles.status}>
-          {listening ? "Listening…" : "Not listening"}
+          {micState === "listening"
+            ? "Listening…"
+            : micState === "paused"
+            ? "Paused — microphone stopped"
+            : "Not listening"}
         </div>
       </div>
 
@@ -159,7 +162,7 @@ export default function VoiceTool() {
       </div>
 
       <footer className={styles.footer}>
-        Internal tool • Mobile-friendly speech-to-text
+        Internal tool • Honest mobile-safe speech-to-text
       </footer>
     </div>
   );
