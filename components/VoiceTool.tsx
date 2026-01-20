@@ -19,7 +19,7 @@ export default function VoiceTool() {
     typeof navigator !== "undefined" &&
     /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-  // Create SpeechRecognition ONCE
+  // Create recognition ONCE
   useEffect(() => {
     const SpeechRecognition =
       window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -31,8 +31,6 @@ export default function VoiceTool() {
 
     const recognition = new SpeechRecognition();
     recognition.lang = "en-US";
-
-    // Desktop vs Mobile behavior
     recognition.continuous = !isMobile;
     recognition.interimResults = !isMobile;
 
@@ -59,9 +57,9 @@ export default function VoiceTool() {
       }
     };
 
-    // IMPORTANT: Mobile restart logic
+    // 🔥 AUTO-RESUME ON SILENCE
     recognition.onend = () => {
-      if (listening && isMobile) {
+      if (listening) {
         recognition.start();
       }
     };
@@ -70,8 +68,6 @@ export default function VoiceTool() {
   }, [isMobile, listening]);
 
   const startMic = () => {
-    setFinalText("");
-    setInterimText("");
     recognitionRef.current.start();
     setListening(true);
   };
@@ -79,6 +75,11 @@ export default function VoiceTool() {
   const stopMic = () => {
     recognitionRef.current.stop();
     setListening(false);
+    setInterimText("");
+  };
+
+  const clearText = () => {
+    setFinalText("");
     setInterimText("");
   };
 
@@ -90,7 +91,7 @@ export default function VoiceTool() {
     <div className={styles.container}>
       <header className={styles.header}>
         <h1>🎙️ Voice Notes</h1>
-        <p>Speak naturally. Text appears live.</p>
+        <p>Speak freely. Pauses won’t stop recording.</p>
       </header>
 
       <div className={styles.card}>
@@ -108,14 +109,19 @@ export default function VoiceTool() {
         )}
 
         <div className={styles.status}>
-          {listening ? "Listening…" : "Click start to speak"}
+          {listening ? "Listening…" : "Not listening"}
         </div>
       </div>
 
       <div className={styles.editor}>
         <div className={styles.editorHeader}>
           <span>Transcript</span>
-          <button onClick={copyText}>Copy</button>
+          <div>
+            <button onClick={copyText}>Copy</button>
+            <button onClick={clearText} style={{ marginLeft: "12px" }}>
+              Clear
+            </button>
+          </div>
         </div>
 
         <textarea
@@ -127,7 +133,7 @@ export default function VoiceTool() {
       </div>
 
       <footer className={styles.footer}>
-        Internal tool • Real-time speech-to-text
+        Internal tool • Continuous speech-to-text
       </footer>
     </div>
   );
