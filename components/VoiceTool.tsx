@@ -12,16 +12,32 @@ type MicState = "idle" | "listening" | "paused";
 
 export default function VoiceTool() {
   const recognitionRef = useRef<any>(null);
+  const watchdogRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Mic UX state (important)
   const [micState, setMicState] = useState<MicState>("idle");
-
   const [finalText, setFinalText] = useState("");
   const [interimText, setInterimText] = useState("");
 
   const isMobile =
     typeof navigator !== "undefined" &&
     /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  // 🔁 Reset watchdog timer
+  const resetWatchdog = () => {
+    if (!isMobile) return;
+
+    if (watchdogRef.current) {
+      clearTimeout(watchdogRef.current);
+    }
+
+    watchdogRef.current = setTimeout(() => {
+      // No results for a while → mic likely stopped
+      if (micState === "listening") {
+        setMicState("paused");
+        setInterimText("");
+      }
+    }, 2500); // 2.5s silence threshold
+  };
 
   useEffect(() => {
     const SpeechRecognition =
@@ -34,11 +50,12 @@ export default function VoiceTool() {
 
     const recognition = new SpeechRecognition();
     recognition.lang = "en-US";
-
     recognition.continuous = !isMobile;
     recognition.interimResults = !isMobile;
 
     recognition.onresult = (event: any) => {
+      resetWatchdog(); // 🔥 KEY
+
       let finalChunk = "";
       let interimChunk = "";
 
@@ -62,16 +79,8 @@ export default function VoiceTool() {
     };
 
     recognition.onend = () => {
-      // Desktop: auto-restart
       if (!isMobile && micState === "listening") {
         recognition.start();
-        return;
-      }
-
-      // Mobile: mic revoked by OS → update UX honestly
-      if (isMobile && micState === "listening") {
-        setMicState("paused");
-        setInterimText("");
       }
     };
 
@@ -82,6 +91,12 @@ export default function VoiceTool() {
     };
 
     recognitionRef.current = recognition;
+
+    return () => {
+      if (watchdogRef.current) {
+        clearTimeout(watchdogRef.current);
+      }
+    };
   }, [isMobile, micState]);
 
   const startMic = () => {
@@ -89,6 +104,7 @@ export default function VoiceTool() {
     try {
       recognitionRef.current.start();
       setMicState("listening");
+      resetWatchdog();
     } catch {}
   };
 
@@ -97,6 +113,10 @@ export default function VoiceTool() {
     recognitionRef.current.stop();
     setMicState("idle");
     setInterimText("");
+
+    if (watchdogRef.current) {
+      clearTimeout(watchdogRef.current);
+    }
   };
 
   const clearText = () => {
@@ -114,7 +134,7 @@ export default function VoiceTool() {
         <h1>🎙️ Voice Notes</h1>
         <p>
           {isMobile
-            ? "Tap to speak. If paused, tap again to continue."
+            ? "Tap to speak. Pauses may pause recording."
             : "Speak freely. Pauses won’t stop recording."}
         </p>
       </header>
@@ -162,7 +182,7 @@ export default function VoiceTool() {
       </div>
 
       <footer className={styles.footer}>
-        Internal tool • Honest mobile-safe speech-to-text
+        Internal tool • Mobile-aware speech-to-text
       </footer>
     </div>
   );
