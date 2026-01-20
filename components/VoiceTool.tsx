@@ -21,51 +21,72 @@ export default function VoiceTool() {
 
   // Create recognition ONCE
   useEffect(() => {
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
+  const SpeechRecognition =
+    window.SpeechRecognition || window.webkitSpeechRecognition;
 
-    if (!SpeechRecognition) {
-      alert("Speech recognition not supported in this browser.");
-      return;
+  if (!SpeechRecognition) {
+    alert("Speech recognition not supported");
+    return;
+  }
+
+  const recognition = new SpeechRecognition();
+  recognition.lang = "en-US";
+
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  recognition.continuous = !isMobile;
+  recognition.interimResults = !isMobile;
+
+  recognition.onresult = (event: any) => {
+    let finalChunk = "";
+    let interimChunk = "";
+
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const transcript = event.results[i][0].transcript;
+
+      if (event.results[i].isFinal) {
+        finalChunk += transcript + " ";
+      } else if (!isMobile) {
+        interimChunk += transcript;
+      }
     }
 
-    const recognition = new SpeechRecognition();
-    recognition.lang = "en-US";
-    recognition.continuous = !isMobile;
-    recognition.interimResults = !isMobile;
+    if (finalChunk) {
+      setFinalText((prev) => prev + finalChunk);
+    }
 
-    recognition.onresult = (event: any) => {
-      let finalChunk = "";
-      let interimChunk = "";
+    if (!isMobile) {
+      setInterimText(interimChunk);
+    }
+  };
 
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
-
-        if (event.results[i].isFinal) {
-          finalChunk += transcript + " ";
-        } else if (!isMobile) {
-          interimChunk += transcript;
+  recognition.onend = () => {
+    // 🔥 MOBILE SAFE AUTO-RESTART
+    if (listening) {
+      setTimeout(() => {
+        try {
+          recognition.start();
+        } catch {
+          // Mobile browsers may block restart — ignore silently
         }
-      }
+      }, 500); // delay is CRITICAL
+    }
+  };
 
-      if (finalChunk) {
-        setFinalText((prev) => prev + finalChunk);
-      }
+  recognition.onerror = () => {
+    // Retry after small delay
+    if (listening) {
+      setTimeout(() => {
+        try {
+          recognition.start();
+        } catch {}
+      }, 800);
+    }
+  };
 
-      if (!isMobile) {
-        setInterimText(interimChunk);
-      }
-    };
+  recognitionRef.current = recognition;
+}, [listening]);
 
-    // 🔥 AUTO-RESUME ON SILENCE
-    recognition.onend = () => {
-      if (listening) {
-        recognition.start();
-      }
-    };
-
-    recognitionRef.current = recognition;
-  }, [isMobile, listening]);
 
   const startMic = () => {
     recognitionRef.current.start();
